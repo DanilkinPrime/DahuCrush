@@ -12,15 +12,18 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/storage"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
 func main() {
 	myApp := app.New()
+	myApp.Settings().SetTheme(theme.DarkTheme())
 	myWindow := myApp.NewWindow("Android IronScan GUI")
 
 	var showMenu func()
@@ -569,11 +572,36 @@ if outFile == nil {
 			btnScan,
 			layout.NewSpacer(),
 		)
-		myWindow.SetContent(menuLayout)
+		myWindow.SetContent(withGradientBg(menuLayout))
 	}
 	showMenu()
 	myWindow.Resize(fyne.NewSize(450, 550))
 	myWindow.ShowAndRun()
+}
+
+func withGradientBg(content fyne.CanvasObject) fyne.CanvasObject {
+	// 1. Основной темный фон на весь экран
+	darkBase := canvas.NewRectangle(color.NRGBA{R: 18, G: 22, B: 30, A: 255})
+
+	// 2. Белый градиент, который начинается с 65% высоты и плавно проявляется к низу
+	bottomWhiteGlow := canvas.NewRasterWithPixels(func(x, y, w, h int) color.Color {
+		if h == 0 {
+			return color.Transparent
+		}
+		progress := float64(y) / float64(h) // от 0.0 (верх) до 1.0 (низ)
+		const startAt = 0.65                 // градиент начнется на 65% высоты экрана
+
+		if progress < startAt {
+			return color.Transparent
+		}
+
+		// Плавное нарастание прозрачности от 0 до ~35% (alpha = 90 из 255)
+		ratio := (progress - startAt) / (1.0 - startAt)
+		alpha := uint8(ratio * ratio * 90) // квадратичная кривая для более мягкого перехода
+		return color.NRGBA{R: 255, G: 255, B: 255, A: alpha}
+	})
+
+	return container.NewStack(darkBase, bottomWhiteGlow, container.NewPadded(content))
 }
 
 func appendLog(entry *widget.Entry, text string) {
