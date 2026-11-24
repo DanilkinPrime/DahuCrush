@@ -421,12 +421,19 @@ func main() {
 		if isFileWithSerials {
 			defaultP2PFile := fmt.Sprintf("krushed.txt")
 			saveP2PDialog := dialog.NewFileSave(func(outFile fyne.URIWriteCloser, err error) {
-				if err != nil || outFile == nil {
-					crashStatus.SetText(err.Error() + " или сохранение отменено")
-					isCloudScanning = false
-					btnStartCloudScan.SetText("Запустить Скан")
-					return
-				}
+				if err != nil {
+	crashStatus.SetText("Ошибка: " + err.Error())
+	isCloudScanning = false
+	btnStartCloudScan.SetText("Запустить Скан")
+	return
+}
+if outFile == nil {
+	crashStatus.SetText("Сохранение отменено")
+	isCloudScanning = false
+	btnStartCloudScan.SetText("Запустить Скан")
+	return
+}
+
 
 				crashStatus.SetText("Крушим камеры")
 				crashLog.SetText("[SYSTEM] Файл распознан как список серийных номеров. Запуск записи...\n")
@@ -455,25 +462,24 @@ func main() {
 					vulnerableCount := 0
 					var currentIdx int64 = 0
 					for res := range moduleChan {
-						atomic.AddInt64(&currentIdx, 1)
-						statusText := fmt.Sprintf("[%s] Serial: %s | %s", res.Status, res.Serial, res.Details)
-						appendLog(crashLog, statusText)
-						if res.Vulnerable {
-							vulnerableCount++
-							saveLine := fmt.Sprintf("%s;%s;%s\n", res.Serial, res.Status, res.Details)
-							_, _ = out.Write([]byte(saveLine))
-						}
-						var percentage float64
-						if totalValidLines > 0 {
-							percentage = (float64(atomic.LoadInt64(&currentIdx)) / float64(totalValidLines)) * 100
-						}
-						crashStatus.SetText(fmt.Sprintf("Прогресс: %.2f%% (%d / %d) | Найдено: %d",
-							percentage,
-							atomic.LoadInt64(&currentIdx),
-							totalValidLines,
-							vulnerableCount,
-						))
-					}
+	idx := atomic.AddInt64(&currentIdx, 1)
+	if res.Vulnerable {
+		vulnerableCount++
+		statusText := fmt.Sprintf("[%s] Serial: %s | %s", res.Status, res.Serial, res.Details)
+		appendLog(crashLog, statusText)
+		saveLine := fmt.Sprintf("%s;%s;%s\n", res.Serial, res.Status, res.Details)
+		_, _ = out.Write([]byte(saveLine))
+	}
+	if idx%10 == 0 || int(idx) == totalValidLines {
+		pct := (float64(idx) / float64(totalValidLines)) * 100
+		vCount := vulnerableCount
+		fyne.Do(func() {
+			crashStatus.SetText(fmt.Sprintf("Прогресс: %.2f%% (%d / %d) | Найдено: %d",
+				pct, idx, totalValidLines, vCount))
+		})
+	}
+}
+
 
 					if ctx.Err() == context.Canceled {
 						crashStatus.SetText("Остановлено пользователем")
@@ -586,11 +592,17 @@ func main() {
 	myWindow.Resize(fyne.NewSize(450, 550))
 	myWindow.ShowAndRun()
 }
+
 func appendLog(entry *widget.Entry, text string) {
-	current := entry.Text
-	if current == "" {
-		entry.SetText(text)
-	} else {
-		entry.SetText(current + "\n" + text)
-	}
+	fyne.Do(func() {
+		current := entry.Text
+		if len(current) > 4000 {
+			current = current[len(current)-3000:]
+		}
+		if current == "" {
+			entry.SetText(text)
+		} else {
+			entry.SetText(current + "\n" + text)
+		}
+	})
 }
