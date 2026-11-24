@@ -83,8 +83,8 @@ func main() {
 
 	var btnStartIPScan *widget.Button
 	btnStartIPScan = widget.NewButton("Запуск Сканирования", nil)
-	btnStartIPScan.OnTapped = func() {
-		// Если сканирование уже запущено — отменяем контекст и выходим
+		btnStartIPScan.OnTapped = func() {
+		// 1. Если сканирование уже идет — отменяем его
 		if isIPScanning {
 			if cancelIPScan != nil {
 				cancelIPScan()
@@ -99,61 +99,42 @@ func main() {
 			return
 		}
 
+		// Блокируем кнопку на время чтения и парсинга файла
+		btnStartIPScan.Disable()
 		statusLabel.SetText("Обработка файла...")
 		logContent.SetText("[SYSTEM] Инициализация сканирования по файлу...\n")
 
-		// Переключаем состояние интерфейса на "Сканирование"
-		isIPScanning = true
-		btnStartIPScan.SetText("Остановить Сканирование")
-        var ctx context.Context
-        ctx, cancelIPScan = context.WithCancel(context.Background())
-		// Запуск обработки в горутине, чтобы не вешать интерфейс
 		go func(r fyne.URIReadCloser) {
-			// Локальный флаг для отслеживания, дошли ли мы до стадии запуска сетевого сканера
-			var scanStarted bool
-
-			defer func() {
-				r.Close()
-				// Если диалог сохранения отменили или произошла ошибка ДО запуска Run,
-				// возвращаем кнопку в исходное состояние прямо здесь
-				if !scanStarted {
-					isIPScanning = false
-					btnStartIPScan.SetText("Запуск Сканирования")
-				}
-			}()
+			defer r.Close()
 
 			appendLog(logContent, "[SYSTEM] Чтение сырых данных из файла...")
-
 			data, err := io.ReadAll(r)
 			if err != nil {
-				statusLabel.SetText("Не удалось прочитать файл")
+				fyne.Do(func() {
+					statusLabel.SetText("Не удалось прочитать файл")
+					btnStartIPScan.Enable()
+				})
 				appendLog(logContent, "[ERROR] Ошибка io.ReadAll: "+err.Error())
 				return
 			}
-			appendLog(logContent, fmt.Sprintf("[SYSTEM] Прочитано %d байт. Очистка строк от символов \\r...", len(data)))
 
 			concurrency, err := strconv.Atoi(strings.TrimSpace(threadsEntry.Text))
 			if err != nil || concurrency < 1 {
 				concurrency = 50
-				threadsEntry.SetText("50")
 			} else if concurrency > 1000 {
 				concurrency = 1000
-				threadsEntry.SetText("1000")
 			}
 
 			basePort, err := strconv.Atoi(strings.TrimSpace(portEntry.Text))
 			if err != nil || basePort <= 0 || basePort > 65535 {
 				basePort = 37777
-				portEntry.SetText("37777")
 			}
 
 			var allowedModels []string
 			filterText := strings.TrimSpace(filterEntry.Text)
 			if filterText != "" {
-				parts := strings.Split(filterText, ",")
-				for _, p := range parts {
-					cleanPart := strings.TrimSpace(p)
-					if cleanPart != "" {
+				for _, p := range strings.Split(filterText, ",") {
+					if cleanPart := strings.TrimSpace(p); cleanPart != "" {
 						allowedModels = append(allowedModels, strings.ToUpper(cleanPart))
 					}
 				}
@@ -189,118 +170,120 @@ func main() {
 
 			appendLog(logContent, fmt.Sprintf("[SYSTEM] Анализ завершен. Найдено валидных целей: %d", len(finalTargets)))
 			if len(finalTargets) == 0 {
-				statusLabel.SetText("Валидные IP не найдены")
+				fyne.Do(func() {
+					statusLabel.SetText("Валидные IP не найдены")
+					btnStartIPScan.Enable()
+				})
 				appendLog(logContent, "[ERROR] Сканирование невозможно: список целей пуст.")
 				return
 			}
 
-			defaultFileName := fmt.Sprintf("Prefixes.txt")
-
-			saveDialog := dialog.NewFileSave(func(outFile fyne.URIWriteCloser, err error) {
-				if err != nil {
-					statusLabel.SetText("Ошибка создания файла: " + err.Error())
-					isIPScanning = false
-					btnStartIPScan.SetText("Запуск Сканирования")
-					return
-				}
-				if outFile == nil {
-					statusLabel.SetText("Сохранение результатов отменено")
-					isIPScanning = false
-					btnStartIPScan.SetText("Запуск Сканирования")
-					return
-				}
-
-				// Фиксируем, что диалог успешно пройден и сетевой сканер запускается
-				scanStarted = true
-
-				appendLog(logContent, "[SYSTEM] Выходной файл подтвержден. Запуск сетевых воркеров...")
-				statusLabel.SetText(fmt.Sprintf("Сканирование %d целей...", len(finalTargets)))
-
-				go func(out fyne.URIWriteCloser) {
-					var successCount uint64 = 0
-
-					defer func() {
-						out.Close()
-						// Сбрасываем флаги сканирования в графическом интерфейсе
-						isIPScanning = false
-						btnStartIPScan.SetText("Запуск Сканирования")
-					}()
-
-					opts := Options{
-						Targets:     finalTargets,
-						Port:        basePort,
-						Timeout:     2 * time.Second,
-						Concurrency: concurrency,
-						Retries:     1,
-						Seed:        0,
+			// Открываем диалог сохранения строго в главном потоке UI
+			fyne.Do(func() {
+				btnStartIPScan.Enable()
+				saveDialog := dialog.NewFileSave(func(outFile fyne.URIWriteCloser, err error) {
+					if err != nil {
+						statusLabel.SetText("Ошибка создания файла: " + err.Error())
+						return
+					}
+					if outFile == nil {
+						statusLabel.SetText("Сохранение результатов отменено")
+						return
 					}
 
-					// Инициализация LogHook для обработки тиков раз в 1 сек
-					LogHook = func(checked, success, total uint64) {
-						var percentage float64
-						if total > 0 {
-							percentage = (float64(checked) / float64(total)) * 100
+					// ТОЛЬКО ЗДЕСЬ включаем режим сканирования и меняем кнопку на "Остановить"!
+					isIPScanning = true
+					btnStartIPScan.SetText("Остановить Сканирование")
+
+					var ctx context.Context
+					ctx, cancelIPScan = context.WithCancel(context.Background())
+
+					appendLog(logContent, "[SYSTEM] Выходной файл подтвержден. Запуск сетевых воркеров...")
+					statusLabel.SetText(fmt.Sprintf("Сканирование %d целей...", len(finalTargets)))
+
+					go func(out fyne.URIWriteCloser) {
+						var successCount uint64 = 0
+
+						defer func() {
+							out.Close()
+							fyne.Do(func() {
+								isIPScanning = false
+								btnStartIPScan.SetText("Запуск Сканирования")
+							})
+						}()
+
+						opts := Options{
+							Targets:     finalTargets,
+							Port:        basePort,
+							Timeout:     2 * time.Second,
+							Concurrency: concurrency,
+							Retries:     1,
+							Seed:        0,
 						}
-						statusLabel.SetText(fmt.Sprintf("Прогресс: %.2f%% (%d / %d) | Найдено: %d",
-							percentage,
-							checked,
-							total,
-							success,
-						))
-					}
 
-					scanErr := Run(ctx, opts, func(res Result) {
-						if res.Ok() {
-							if len(allowedModels) > 0 {
-								matched := false
-								serialUpper := strings.ToUpper(res.Serial)
-								for _, allowed := range allowedModels {
-									if strings.Contains(serialUpper, allowed) {
-										matched = true
-										break
+						LogHook = func(checked, success, total uint64) {
+							var percentage float64
+							if total > 0 {
+								percentage = (float64(checked) / float64(total)) * 100
+							}
+							fyne.Do(func() {
+								statusLabel.SetText(fmt.Sprintf("Прогресс: %.2f%% (%d / %d) | Найдено: %d",
+									percentage, checked, total, success))
+							})
+						}
+
+						scanErr := Run(ctx, opts, func(res Result) {
+							if res.Ok() {
+								if len(allowedModels) > 0 {
+									matched := false
+									serialUpper := strings.ToUpper(res.Serial)
+									for _, allowed := range allowedModels {
+										if strings.Contains(serialUpper, allowed) {
+											matched = true
+											break
+										}
+									}
+									if !matched {
+										return
 									}
 								}
-								if !matched {
-									return
-								}
-							}
 
-							finalSerial := res.Serial
-							if ruleEntry.Text == "Нет" {
-								if len(finalSerial) > 10 {
+								finalSerial := res.Serial
+								if ruleEntry.Text == "Нет" && len(finalSerial) > 10 {
 									finalSerial = finalSerial[:10]
 								}
+
+								atomic.AddUint64(&successCount, 1)
+
+								foundMsg := fmt.Sprintf("[FOUND] %s -> %s (%s)", res.Target, finalSerial, res.Model)
+								appendLog(logContent, foundMsg)
+
+								lineData := fmt.Sprintf("%s\n", finalSerial)
+								if _, writeErr := out.Write([]byte(lineData)); writeErr != nil {
+									appendLog(logContent, "[ERROR] Ошибка записи на диск: "+writeErr.Error())
+								}
 							}
+						})
 
-							atomic.AddUint64(&successCount, 1)
-
-							foundMsg := fmt.Sprintf("[FOUND] %s -> %s (%s)", res.Target, finalSerial, res.Model)
-							appendLog(logContent, foundMsg)
-
-							lineData := fmt.Sprintf("%s\n", finalSerial)
-							if _, writeErr := out.Write([]byte(lineData)); writeErr != nil {
-								appendLog(logContent, "[ERROR] Ошибка записи на диск: "+writeErr.Error())
+						fyne.Do(func() {
+							if ctx.Err() == context.Canceled {
+								statusLabel.SetText("Сканирование остановлено пользователем")
+								appendLog(logContent, "[SYSTEM] Сканирование принудительно прервано.")
+							} else if scanErr != nil {
+								statusLabel.SetText("Ошибка работы: " + scanErr.Error())
+								appendLog(logContent, "[ERROR] Сканер аварийно завершился: "+scanErr.Error())
+							} else {
+								finalSuccess := atomic.LoadUint64(&successCount)
+								statusLabel.SetText(fmt.Sprintf("Успешно! Найдено устройств: %d", finalSuccess))
+								appendLog(logContent, fmt.Sprintf("[SYSTEM] Сканирование полностью завершено. Успешных находок: %d", finalSuccess))
 							}
-						}
-					})
+						})
+					}(outFile)
+				}, myWindow)
 
-					// Проверяем статус завершения: обычный выход, ошибка или отмена пользователем
-					if ctx.Err() == context.Canceled {
-						statusLabel.SetText("Сканирование остановлено пользователем")
-						appendLog(logContent, "[SYSTEM] Сканирование принудительно прервано.")
-					} else if scanErr != nil {
-						statusLabel.SetText("Ошибка работы: " + scanErr.Error())
-						appendLog(logContent, "[ERROR] Сканер аварийно завершился: "+scanErr.Error())
-					} else {
-						finalSuccess := atomic.LoadUint64(&successCount)
-						statusLabel.SetText(fmt.Sprintf("Успешно! Найдено устройств: %d", finalSuccess))
-						appendLog(logContent, fmt.Sprintf("[SYSTEM] Сканирование полностью завершено. Успешных находок: %d", finalSuccess))
-					}
-				}(outFile)
-			}, myWindow)
-
-			saveDialog.SetFileName(defaultFileName)
-			saveDialog.Show()
+				saveDialog.SetFileName("prefixes.txt")
+				saveDialog.Show()
+			})
 		}(selectedIPFile)
 	}
 
@@ -419,7 +402,7 @@ func main() {
 
 		isFileWithSerials := len(sampleSerial) >= 13
 		if isFileWithSerials {
-			defaultP2PFile := fmt.Sprintf("krushed.txt")
+			defaultP2PFile := fmt.Sprintf("crushed.txt")
 			saveP2PDialog := dialog.NewFileSave(func(outFile fyne.URIWriteCloser, err error) {
 				if err != nil {
 	crashStatus.SetText("Ошибка: " + err.Error())
@@ -569,7 +552,7 @@ if outFile == nil {
 	)
 	showMenu = func() {
 		menuTitle := widget.NewLabelWithStyle(
-			"Главное меню",
+			"DahuCrush",
 			fyne.TextAlignCenter,
 			fyne.TextStyle{Bold: true},
 		)
