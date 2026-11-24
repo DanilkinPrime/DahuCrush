@@ -554,6 +554,52 @@ if outFile == nil {
 		crashLog,
 		backToMenuBtn2,
 	)
+
+	textEditor := widget.NewMultiLineEntry()
+textEditor.SetPlaceHolder("Введите или вставьте текст...")
+textEditor.Wrapping = fyne.TextWrapWord
+
+btnDownloadText := widget.NewButton("Скачать файл", func() {
+    saveDialog := dialog.NewFileSave(func(file fyne.URIWriteCloser, err error) {
+        if err != nil {
+            dialog.ShowError(err, myWindow)
+            return
+        }
+
+        if file == nil {
+            return
+        }
+
+        _, writeErr := file.Write([]byte(textEditor.Text))
+        closeErr := file.Close()
+
+        if writeErr != nil {
+            dialog.ShowError(writeErr, myWindow)
+            return
+        }
+
+        if closeErr != nil {
+            dialog.ShowError(closeErr, myWindow)
+            return
+        }
+
+        dialog.ShowInformation(
+            "Готово",
+            "Текст успешно сохранён!",
+            myWindow,
+        )
+    }, myWindow)
+
+    saveDialog.SetFileName("TxtData.txt")
+    saveDialog.Show()
+})
+editorContent := container.NewBorder(
+    nil,
+    container.NewPadded(btnDownloadText),
+    nil,
+    nil,
+    container.NewPadded(textEditor),
+)
 	showMenu = func() {
 		menuTitle := widget.NewLabelWithStyle(
 			"DahuCrush",
@@ -566,11 +612,16 @@ if outFile == nil {
 		btnScan := widget.NewButton("2. Скан префиксов из айпи", func() {
 			myWindow.SetContent(withGradientBg(scanContent))
 		})
+
+		btnTextEditor := widget.NewButton("3. Редактор текста", func() {
+            myWindow.SetContent(withGradientBg(editorContent))
+        })
 		menuLayout := container.NewVBox(
 			menuTitle,
 			layout.NewSpacer(),
 			btnCrash,
 			btnScan,
+			btnTextEditor,
 			layout.NewSpacer(),
 		)
 		myWindow.SetContent(withGradientBg(menuLayout))
