@@ -44,7 +44,7 @@ func main() {
 	filterEntry.SetPlaceHolder("Пусто = все")
 
 	logContent := widget.NewMultiLineEntry()
-	logContent.SetPlaceHolder("Здесь будут отображаться шаги работы...")
+	logContent.SetPlaceHolder("Логи")
 	logContent.Disable()
 
 	backToMenuBtn1 := widget.NewButton("Назад в меню", func() {
@@ -79,7 +79,7 @@ func main() {
 			}
 			selectedIPFile = reader
 			statusLabel.SetText("Выбран файл: " + reader.URI().Name())
-			logContent.SetText("[SYSTEM] Файл целей успешно загружен.\n")
+			logContent.SetText("Файл целей успешно загружен.\n")
 		}, myWindow)
 		fileDialog.SetFilter(storage.NewExtensionFileFilter([]string{".txt"}))
 		fileDialog.Show()
@@ -94,31 +94,31 @@ func main() {
 				cancelIPScan()
 			}
 			statusLabel.SetText("Остановка сканирования...")
-			appendLog(logContent, "[SYSTEM] Запрос на отмену отправлен. Ожидание завершения воркеров...")
+			appendLog(logContent, "Запрос на отмену отправлен. Ожидание завершения воркеров...")
 			return
 		}
 
 		if selectedIPFile == nil {
-			statusLabel.SetText("Ошибка: Сначала выберите файл с IP!")
+			statusLabel.SetText("Сначала выберите файл с IP!")
 			return
 		}
 
 		// Блокируем кнопку на время чтения и парсинга файла
 		btnStartIPScan.Disable()
 		statusLabel.SetText("Обработка файла...")
-		logContent.SetText("[SYSTEM] Инициализация сканирования по файлу...\n")
+		logContent.SetText("Инициализация сканирования по файлу.\n")
 
 		go func(r fyne.URIReadCloser) {
 			defer r.Close()
 
-			appendLog(logContent, "[SYSTEM] Чтение сырых данных из файла...")
+			appendLog(logContent, "Чтение сырых данных из файла.")
 			data, err := io.ReadAll(r)
 			if err != nil {
 				fyne.Do(func() {
 					statusLabel.SetText("Не удалось прочитать файл")
 					btnStartIPScan.Enable()
 				})
-				appendLog(logContent, "[ERROR] Ошибка io.ReadAll: "+err.Error())
+				appendLog(logContent, "Ошибка io.ReadAll: "+err.Error())
 				return
 			}
 
@@ -147,7 +147,7 @@ func main() {
 			cleanText := strings.ReplaceAll(string(data), "\r", "")
 			lines := strings.Split(cleanText, "\n")
 			var finalTargets []string
-			appendLog(logContent, "[SYSTEM] Запуск парсинга целей...")
+			appendLog(logContent, "Запуск парсинга.")
 
 			for i, line := range lines {
 				line = strings.TrimSpace(line)
@@ -156,7 +156,7 @@ func main() {
 				}
 				parsedLines := ParseTarget(line)
 				if len(parsedLines) == 0 {
-					appendLog(logContent, fmt.Sprintf("[WARN] Строка %d пропущена парсером: %s", i+1, line))
+					appendLog(logContent, fmt.Sprintf("Строка %d пропущена парсером: %s", i+1, line))
 					continue
 				}
 				for _, parsed := range parsedLines {
@@ -172,13 +172,13 @@ func main() {
 				}
 			}
 
-			appendLog(logContent, fmt.Sprintf("[SYSTEM] Анализ завершен. Найдено валидных целей: %d", len(finalTargets)))
+			appendLog(logContent, fmt.Sprintf("Найдено: %d", len(finalTargets)))
 			if len(finalTargets) == 0 {
 				fyne.Do(func() {
 					statusLabel.SetText("Валидные IP не найдены")
 					btnStartIPScan.Enable()
 				})
-				appendLog(logContent, "[ERROR] Сканирование невозможно: список целей пуст.")
+				appendLog(logContent, "Список файла пуст.")
 				return
 			}
 
@@ -202,7 +202,7 @@ func main() {
 					var ctx context.Context
 					ctx, cancelIPScan = context.WithCancel(context.Background())
 
-					appendLog(logContent, "[SYSTEM] Выходной файл подтвержден. Запуск сетевых воркеров...")
+					appendLog(logContent, "Выходной файл подтвержден.")
 					statusLabel.SetText(fmt.Sprintf("Сканирование %d целей...", len(finalTargets)))
 
 					go func(out fyne.URIWriteCloser) {
@@ -264,22 +264,22 @@ func main() {
 
 								lineData := fmt.Sprintf("%s\n", finalSerial)
 								if _, writeErr := out.Write([]byte(lineData)); writeErr != nil {
-									appendLog(logContent, "[ERROR] Ошибка записи на диск: "+writeErr.Error())
+									appendLog(logContent, "Ошибка записи на диск: "+writeErr.Error())
 								}
 							}
 						})
 
 						fyne.Do(func() {
 							if ctx.Err() == context.Canceled {
-								statusLabel.SetText("Сканирование остановлено пользователем")
-								appendLog(logContent, "[SYSTEM] Сканирование принудительно прервано.")
+								statusLabel.SetText("Сканирование остановлено")
+								appendLog(logContent, "Сканирование принудительно прервано.")
 							} else if scanErr != nil {
 								statusLabel.SetText("Ошибка работы: " + scanErr.Error())
-								appendLog(logContent, "[ERROR] Сканер аварийно завершился: "+scanErr.Error())
+								appendLog(logContent, "Сканер аварийно завершился: "+scanErr.Error())
 							} else {
 								finalSuccess := atomic.LoadUint64(&successCount)
-								statusLabel.SetText(fmt.Sprintf("Успешно! Найдено устройств: %d", finalSuccess))
-								appendLog(logContent, fmt.Sprintf("[SYSTEM] Сканирование полностью завершено. Успешных находок: %d", finalSuccess))
+								statusLabel.SetText(fmt.Sprintf("Найдено устройств: %d", finalSuccess))
+								appendLog(logContent, fmt.Sprintf("Сканирование полностью завершено. Найдено: %d", finalSuccess))
 							}
 						})
 					}(outFile)
@@ -354,13 +354,13 @@ func main() {
 			if cancelCloudScan != nil {
 				cancelCloudScan()
 			}
-			crashStatus.SetText("Остановка сканирования...")
-			appendLog(crashLog, "[SYSTEM] Запрос на отмену отправлен. Ожидание завершения воркеров...")
+			crashStatus.SetText("Остановка сканирования")
+			appendLog(crashLog, "Запрос на отмену отправлен.")
 			return
 		}
 
 		if selectedCloudFile == nil {
-			crashStatus.SetText("Ошибка: Сначала выберите исходный файл!")
+			crashStatus.SetText("Сначала выберите исходный файл!")
 			return
 		}
 
@@ -395,7 +395,7 @@ func main() {
 			}
 		}
 		if totalValidLines == 0 {
-			crashStatus.SetText("Ошибка: Выбранный файл пуст!")
+			crashStatus.SetText("Выбранный файл пуст!")
 			return
 		}
 
@@ -423,7 +423,7 @@ if outFile == nil {
 
 
 				crashStatus.SetText("Крушим камеры")
-				crashLog.SetText("[SYSTEM] Файл распознан как список серийных номеров. Запуск записи...\n")
+				crashLog.SetText("Файл имеет серийники\n")
 				connTimeout := 6 * time.Second
 				moduleChan := make(chan P2PScanResult, 100)
 
@@ -442,7 +442,7 @@ if outFile == nil {
 					err := StartP2PModuleScan(ctx, reader, workers, connTimeout, moduleChan)
 					if err != nil {
 						crashStatus.SetText("Ошибка модуля!")
-						appendLog(crashLog, "[ERROR] Прервано: "+err.Error())
+						appendLog(crashLog, "Прервано: "+err.Error())
 						return
 					}
 
@@ -470,10 +470,10 @@ if outFile == nil {
 
 					if ctx.Err() == context.Canceled {
 						crashStatus.SetText("Остановлено пользователем")
-						appendLog(crashLog, "[SYSTEM] Проверка принудительно прервана пользователем.")
+						appendLog(crashLog, "Проверка принудительно прервана.")
 					} else {
 						crashStatus.SetText("P2P Скан завершен!")
-						appendLog(crashLog, fmt.Sprintf("[SYSTEM] Проверка окончена. Уязвимых устройств сохранено: %d.", vulnerableCount))
+						appendLog(crashLog, fmt.Sprintf("Проверка окончена. Сохранено: %d.", vulnerableCount))
 					}
 				}(cleanText, outFile)
 			}, myWindow)
@@ -481,7 +481,7 @@ if outFile == nil {
 			saveP2PDialog.Show()
 		} else {
 			if len(sampleSerial) != 10 {
-				crashStatus.SetText("Ошибка: Для скана префикса должен быть 10 символов!")
+				crashStatus.SetText("Для скана префикса должен быть 10 символов!")
 				isCloudScanning = false
 				btnStartCloudScan.SetText("Запустить Скан")
 				return
@@ -496,7 +496,7 @@ if outFile == nil {
 				}
 
 				crashStatus.SetText("Сканирование запущено...")
-				crashLog.SetText("[SYSTEM] Выходной файл создан. Инициализация Сканера...\n")
+				crashLog.SetText("Выходной файл создан\n")
 
 				// Инициализация отменяемого контекста
 				var ctx context.Context
@@ -510,7 +510,7 @@ if outFile == nil {
 					}()
 
 					stats, err := ScanCloudPrefix(ctx, sampleSerial, workers, rps, func(realSerial string) {
-						appendLog(crashLog, fmt.Sprintf("[ALIVE] Найдена камера: %s", realSerial))
+						appendLog(crashLog, fmt.Sprintf("Найдена камера: %s", realSerial))
 						_, _ = out.Write([]byte(realSerial + "\n"))
 					}, func(checked, success, total uint64) {
 						var percentage float64
@@ -527,10 +527,10 @@ if outFile == nil {
 
 					if ctx.Err() == context.Canceled {
 						crashStatus.SetText("Сканирование прервано")
-						appendLog(crashLog, "[SYSTEM] Сканирование принудительно остановлено.")
+						appendLog(crashLog, "Сканирование принудительно остановлено.")
 					} else if err != nil {
 						crashStatus.SetText("Ошибка запуска сканера!")
-						appendLog(crashLog, "[ERROR] Прервано: "+err.Error())
+						appendLog(crashLog, "Прервано: "+err.Error())
 					} else {
 						crashStatus.SetText("Готово!")
 						appendLog(crashLog, fmt.Sprintf("Проверено: %d, Живых: %d", stats.TotalSent, stats.TotalHits))
@@ -561,10 +561,10 @@ if outFile == nil {
 			fyne.TextStyle{Bold: true},
 		)
 		btnCrash := widget.NewButton("1. Круш камер", func() {
-			myWindow.SetContent(crashContent)
+			myWindow.SetContent(withGradientBg(crashContent))
 		})
 		btnScan := widget.NewButton("2. Скан префиксов из айпи", func() {
-			myWindow.SetContent(scanContent)
+			myWindow.SetContent(withGradientBg(scanContent))
 		})
 		menuLayout := container.NewVBox(
 			menuTitle,
@@ -581,28 +581,13 @@ if outFile == nil {
 }
 
 func withGradientBg(content fyne.CanvasObject) fyne.CanvasObject {
-	// 1. Основной темный фон на весь экран
-	darkBase := canvas.NewRectangle(color.NRGBA{R: 18, G: 22, B: 30, A: 255})
+	bottomWhiteGlow := canvas.NewLinearGradient(
+		color.Transparent,
+		color.NRGBA{R: 255, G: 255, B: 255, A: 51}, // 80% прозрачности (20% белого)
+		0.0,
+	)
 
-	// 2. Белый градиент, который начинается с 65% высоты и плавно проявляется к низу
-	bottomWhiteGlow := canvas.NewRasterWithPixels(func(x, y, w, h int) color.Color {
-		if h == 0 {
-			return color.Transparent
-		}
-		progress := float64(y) / float64(h) // от 0.0 (верх) до 1.0 (низ)
-		const startAt = 0.65                 // градиент начнется на 65% высоты экрана
-
-		if progress < startAt {
-			return color.Transparent
-		}
-
-		// Плавное нарастание прозрачности от 0 до ~35% (alpha = 90 из 255)
-		ratio := (progress - startAt) / (1.0 - startAt)
-		alpha := uint8(ratio * ratio * 90) // квадратичная кривая для более мягкого перехода
-		return color.NRGBA{R: 255, G: 255, B: 255, A: alpha}
-	})
-
-	return container.NewStack(darkBase, bottomWhiteGlow, container.NewPadded(content))
+	return container.NewStack(bottomWhiteGlow, container.NewPadded(content))
 }
 
 func appendLog(entry *widget.Entry, text string) {
