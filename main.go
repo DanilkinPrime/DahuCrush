@@ -561,12 +561,7 @@ textEditor.Wrapping = fyne.TextWrapWord
 
 btnDownloadText := widget.NewButton("Скачать файл", func() {
     saveDialog := dialog.NewFileSave(func(file fyne.URIWriteCloser, err error) {
-        if err != nil {
-            dialog.ShowError(err, myWindow)
-            return
-        }
-
-        if file == nil {
+		if file == nil {
             return
         }
 
@@ -574,29 +569,25 @@ btnDownloadText := widget.NewButton("Скачать файл", func() {
         closeErr := file.Close()
 
         if writeErr != nil {
-            dialog.ShowError(writeErr, myWindow)
             return
         }
 
         if closeErr != nil {
-            dialog.ShowError(closeErr, myWindow)
             return
         }
-
-        dialog.ShowInformation(
-            "Готово",
-            "Текст успешно сохранён!",
-            myWindow,
-        )
     }, myWindow)
 
     saveDialog.SetFileName("TxtData.txt")
     saveDialog.Show()
 })
+	
+backToMenuBtn3 := widget.NewButton("Назад в меню", func() {
+		showMenu()
+})
 editorContent := container.NewBorder(
     nil,
     container.NewPadded(btnDownloadText),
-    nil,
+    container.NewPadded(backToMenuBtn3),
     nil,
     container.NewPadded(textEditor),
 )
